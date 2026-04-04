@@ -2,14 +2,15 @@ import { useState, useEffect } from 'react';
 
 /**
  * Hook for reading live KiCad board state.
- * Currently a stub — full implementation comes in Step 2 (KiCad MCP connection).
+ * Polls /kicad/status every 5s and subscribes to Electron IPC push events.
  */
 export function useKiCadState() {
   const [boardState, setBoardState] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [queueDepth, setQueueDepth] = useState(0);
+  const [drcIteration, setDrcIteration] = useState(0);
 
   useEffect(() => {
-    // TODO (Step 2): Poll /kicad/status and subscribe to kicad:update IPC events
     let cancelled = false;
 
     async function checkStatus() {
@@ -19,16 +20,18 @@ export function useKiCadState() {
           const data = await res.json();
           setIsConnected(data.connected ?? false);
           setBoardState(data.board ?? null);
+          setQueueDepth(data.queue_depth ?? 0);
+          setDrcIteration(data.drc_iteration ?? 0);
         }
       } catch {
-        // Backend not yet running — expected during initial load
+        // Backend not yet running
       }
     }
 
     checkStatus();
     const interval = setInterval(checkStatus, 5000);
 
-    // Also listen for real-time push updates via Electron IPC
+    // Listen for real-time push updates via Electron IPC (Step 2+)
     if (window.pcbai?.onKiCadUpdate) {
       window.pcbai.onKiCadUpdate((data) => {
         if (!cancelled) {
@@ -45,5 +48,5 @@ export function useKiCadState() {
     };
   }, []);
 
-  return { boardState, isConnected };
+  return { boardState, isConnected, queueDepth, drcIteration };
 }
