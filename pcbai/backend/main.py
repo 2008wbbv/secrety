@@ -8,6 +8,11 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Load .env from the project root (two levels above this file: pcbai/backend/main.py)
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+
 import uvicorn
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,7 +52,10 @@ export_handler: ExportHandler | None = None
 async def lifespan(app: FastAPI):
     global claude_handler, kicad_client, datasheet_parser, export_handler
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if api_key:
+        logger.info("ANTHROPIC_API_KEY loaded: %s...%s (%d chars)",
+                    api_key[:12], api_key[-4:], len(api_key))
     claude_handler = ClaudeHandler(api_key=api_key)
     kicad_client = KiCadMCPClient()
     datasheet_parser = DatasheetParser(anthropic_client=claude_handler._client)
@@ -69,7 +77,17 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Access-Control-Allow-Private-Network"],
 )
+
+
+@app.middleware("http")
+async def private_network_access(request, call_next):
+    """Allow Chromium Private Network Access requests (e.g. from localhost:5173 to 127.0.0.1:7842)."""
+    response = await call_next(request)
+    if request.headers.get("Access-Control-Request-Private-Network"):
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
