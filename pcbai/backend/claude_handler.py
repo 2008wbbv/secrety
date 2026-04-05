@@ -24,6 +24,7 @@ from system_prompt import (
     Stage,
     build_system_prompt,
 )
+from expertise_detector import ExpertiseDetector
 
 logger = logging.getLogger("pcbai.claude_handler")
 
@@ -69,8 +70,22 @@ class Session:
         self.stage: Stage = "intent_capture"
         self.decisions: list[str] = []         # Accumulated autonomous decisions
         self.board_state: dict | None = None   # Injected from KiCad before each call
+        self._detector = ExpertiseDetector()   # Local heuristic; refined by Claude's _meta
 
     def add_user_message(self, content: str):
+        # Run local detector on every user message so the system prompt has a
+        # best-guess before Claude even responds.
+        analysis = self._detector.analyze(content)
+        detector_level = self._detector.level()
+
+        # Local detector only upgrades from "unknown"; Claude's _meta can override
+        if self.expertise_level == "unknown" and detector_level != "unknown":
+            logger.info(
+                "[%s] Expertise pre-classified by detector: %s (conf=%.2f)",
+                self.session_id, detector_level, self._detector.confidence(),
+            )
+            self.expertise_level = detector_level
+
         self.history.append({"role": "user", "content": content})
 
     def add_assistant_message(self, content: str):
@@ -106,6 +121,7 @@ class Session:
             "stage": self.stage,
             "message_count": len(self.history),
             "decisions": self.decisions,
+            "detector": self._detector.summary(),
         }
 
 

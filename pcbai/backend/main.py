@@ -18,6 +18,8 @@ from claude_handler import ClaudeHandler
 from kicad_mcp_client import KiCadMCPClient
 from datasheet_parser import DatasheetParser
 from export_handler import ExportHandler
+from expertise_detector import ExpertiseDetector
+from component_resolver import ComponentResolver, DesignContext
 from simulation import (
     PowerBudgetCalculator,
     TraceWidthCalculator,
@@ -79,6 +81,18 @@ class ChatRequest(BaseModel):
 
 class SessionResetRequest(BaseModel):
     session_id: str
+
+
+class ExpertiseAnalyzeRequest(BaseModel):
+    messages: list[str]   # One or more user message strings
+
+
+class ComponentResolveRequest(BaseModel):
+    descriptions: list[str]
+    assembly_method: str | None = None     # "hand" | "reflow" | "production"
+    existing_packages: list[str] = []
+    dominant_package: str | None = None
+    expertise_level: str = "unknown"
 
 
 class SimulationRequest(BaseModel):
@@ -185,6 +199,67 @@ async def get_session(session_id: str):
 async def reset_session(request: SessionResetRequest):
     """Reset a conversation session to start fresh."""
     return claude_handler.reset_session(request.session_id)
+
+
+# ── Expertise detection ───────────────────────────────────────────────────────
+
+@app.post("/expertise/analyze")
+async def analyze_expertise(request: ExpertiseAnalyzeRequest):
+    """
+    Analyze one or more user messages and return an expertise level estimate.
+    Stateless — creates a fresh detector for the provided messages.
+    For real sessions the detector is embedded in Session inside ClaudeHandler.
+    Useful for testing and frontend previewing.
+    """
+    detector = ExpertiseDetector()
+    for msg in request.messages:
+        detector.analyze(msg)
+    return detector.summary()
+
+
+# ── Component resolution ──────────────────────────────────────────────────────
+
+@app.post("/component/resolve")
+async def resolve_components(request: ComponentResolveRequest):
+    """
+    Resolve underspecified component descriptions to concrete package + footprint.
+    Returns resolved components and any clarification questions needed.
+    """
+    resolver = ComponentResolver()
+    ctx = DesignContext(
+        assembly_method=request.assembly_method,
+        existing_packages=request.existing_packages,
+        dominant_package=request.dominant_package,
+    )
+    expertise_level = request.expertise_level or "unknown"
+
+    resolved_list = []
+    clarify_list = []
+
+    for desc in request.descriptions:
+        result = resolver.resolve(desc, ctx, expertise_level)  # type: ignore[arg-type]
+        from component_resolver import ResolvedComponent, ClarifyRequest
+        if isinstance(result, ResolvedComponent):
+            resolved_list.append({
+                "description": result.description,
+                "type": result.component_type,
+                "value": result.value,
+                "package": result.package,
+                "footprint_id": result.footprint_id,
+                "reasoning": result.reasoning,
+            })
+        else:
+            clarify_list.append({
+                "description": result.description,
+                "type": result.component_type,
+                "question": result.question,
+            })
+
+    return {
+        "resolved": resolved_list,
+        "needs_clarification": clarify_list,
+        "all_resolved": len(clarify_list) == 0,
+    }
 
 
 # ── KiCad ─────────────────────────────────────────────────────────────────────
