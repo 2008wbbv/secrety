@@ -8,6 +8,11 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Load .env from the project root (two levels above this file: pcbai/backend/main.py)
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+
 import uvicorn
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
