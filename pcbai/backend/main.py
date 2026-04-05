@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     claude_handler = ClaudeHandler(api_key=api_key)
     kicad_client = KiCadMCPClient()
-    datasheet_parser = DatasheetParser()
+    datasheet_parser = DatasheetParser(anthropic_client=claude_handler._client)
     export_handler = ExportHandler()
 
     logger.info("PCB.AI backend started on port 7842")
@@ -413,9 +413,28 @@ async def kicad_test():
 # ── Datasheet ─────────────────────────────────────────────────────────────────
 
 @app.post("/datasheet/upload")
-async def upload_datasheet(file: UploadFile = File(...)):
+async def upload_datasheet(
+    file: UploadFile = File(...),
+    session_id: str | None = None,
+):
+    """
+    Parse a PDF datasheet and return structured constraints.
+    Provide session_id to get an expertise-adapted summary in the response.
+    """
     contents = await file.read()
-    return await datasheet_parser.parse(filename=file.filename, content=contents)
+    result = await datasheet_parser.parse(filename=file.filename, content=contents)
+
+    # Add expertise-adapted summary if session known
+    if session_id and result.get("parsed"):
+        session = claude_handler.get_session_info(session_id)
+        expertise = (session or {}).get("expertise_level", "unknown")
+        constraints_obj = result.get("constraints", {})
+        if expertise == "expert":
+            result["adapted_summary"] = result.get("expert_summary", "")
+        else:
+            result["adapted_summary"] = result.get("beginner_summary", "")
+
+    return result
 
 
 # ── Simulation ────────────────────────────────────────────────────────────────
