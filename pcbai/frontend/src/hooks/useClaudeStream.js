@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 
-const BACKEND_URL = 'http://localhost:7842';
+const BACKEND_URL = 'http://127.0.0.1:7842';
 
 /**
  * Hook for streaming Claude responses via SSE over a POST /chat request.

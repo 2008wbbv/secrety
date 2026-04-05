@@ -39,7 +39,7 @@ function pollBackendHealth(retries = 30, intervalMs = 1000) {
     function attempt() {
       attempts++;
       const req = http.get(
-        `http://localhost:${BACKEND_PORT}/health`,
+        `http://127.0.0.1:${BACKEND_PORT}/health`,
         (res) => {
           if (res.statusCode === 200) {
             console.log(`[Electron] Backend healthy after ${attempts} attempt(s)`);
@@ -108,7 +108,7 @@ function createWindow() {
 
 ipcMain.handle('backend:fetch', async (_event, urlPath, options = {}) => {
   // Only allow fetching from the local backend
-  const url = `http://localhost:${BACKEND_PORT}${urlPath}`;
+  const url = `http://127.0.0.1:${BACKEND_PORT}${urlPath}`;
   let fetchFn;
   try {
     const mod = await import('node-fetch');
@@ -128,17 +128,21 @@ ipcMain.handle('backend:fetch', async (_event, urlPath, options = {}) => {
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
-  spawnBackend();
+  // In dev mode the backend is already running via `npm run dev:backend`.
+  // Only spawn it ourselves in production.
+  if (!IS_DEV) {
+    spawnBackend();
+  }
 
   try {
     await pollBackendHealth();
   } catch (err) {
     console.error('[Electron] Backend health check failed:', err.message);
-    // Continue anyway in dev — backend might already be running externally
     if (!IS_DEV) {
       app.quit();
       return;
     }
+    // In dev, continue anyway — something else may be wrong but we can still show the UI.
   }
 
   createWindow();
