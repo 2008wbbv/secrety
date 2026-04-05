@@ -1,0 +1,31 @@
+# Node
+node_modules/
+dist/
+dist-electron/
+.vite/
+*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+*.egg
+build/
+.pytest_cache/
+
+# Electron build output
+pcbai/electron/out/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

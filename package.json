@@ -1,0 +1,19 @@
+{
+  "name": "pcbai-root",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --kill-others --names \"BACKEND,VITE,ELECTRON\" --prefix-colors \"blue,green,yellow\" \"npm run dev:backend\" \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev:backend": "python3 pcbai/backend/main.py",
+    "dev:vite": "npm --prefix pcbai/frontend run dev",
+    "dev:electron": "wait-on http://localhost:5173 && cross-env ELECTRON_DEV=1 electron pcbai/electron/main.js",
+    "install:all": "npm install && npm --prefix pcbai/frontend install",
+    "install:python": "pip3 install -r pcbai/backend/requirements.txt"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "cross-env": "^7.0.0",
+    "electron": "^28.0.0",
+    "wait-on": "^8.0.0"
+  }
+}
