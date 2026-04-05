@@ -69,7 +69,17 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Access-Control-Allow-Private-Network"],
 )
+
+
+@app.middleware("http")
+async def private_network_access(request, call_next):
+    """Allow Chromium Private Network Access requests (e.g. from localhost:5173 to 127.0.0.1:7842)."""
+    response = await call_next(request)
+    if request.headers.get("Access-Control-Request-Private-Network"):
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
 
 
 # ── Models ────────────────────────────────────────────────────────────────────

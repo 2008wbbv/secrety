@@ -15,7 +15,7 @@ export function useKiCadState() {
 
     async function checkStatus() {
       try {
-        const res = await fetch('http://127.0.0.1:7842/kicad/status');
+        const res = await fetch('http://localhost:7842/kicad/status');
         if (res.ok && !cancelled) {
           const data = await res.json();
           setIsConnected(data.connected ?? false);
