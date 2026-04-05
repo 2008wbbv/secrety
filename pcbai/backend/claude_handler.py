@@ -213,8 +213,12 @@ class ClaudeHandler:
             board_state=session.board_state,
         )
 
-        # Stream from Claude
+        # Stream from Claude, suppressing the _meta tail from the visible chat
         full_response = ""
+        pending = ""  # buffer to detect and suppress {"_meta":...} before it renders
+        _META_SENTINEL = '{"_meta"'
+        _meta_started = False
+
         try:
             async with self._client.messages.stream(
                 model=MODEL,
@@ -224,7 +228,30 @@ class ClaudeHandler:
             ) as stream:
                 async for text_chunk in stream.text_stream:
                     full_response += text_chunk
-                    yield _sse({"type": "text", "text": text_chunk})
+
+                    if _meta_started:
+                        # Already in _meta block — accumulate but don't forward
+                        continue
+
+                    pending += text_chunk
+                    if _META_SENTINEL in pending:
+                        # Emit everything before the sentinel, then stop forwarding
+                        before = pending[: pending.index(_META_SENTINEL)]
+                        if before:
+                            yield _sse({"type": "text", "text": before})
+                        _meta_started = True
+                        continue
+
+                    # Flush everything except the last len(sentinel)-1 chars
+                    # (those chars could be the start of the sentinel split across chunks)
+                    safe_len = max(0, len(pending) - len(_META_SENTINEL) + 1)
+                    if safe_len > 0:
+                        yield _sse({"type": "text", "text": pending[:safe_len]})
+                        pending = pending[safe_len:]
+
+            # Flush any remaining buffered text that wasn't part of _meta
+            if pending and _META_SENTINEL not in pending:
+                yield _sse({"type": "text", "text": pending})
 
         except Exception as exc:
             logger.error("[%s] Claude API error: %s", session_id, exc)
