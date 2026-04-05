@@ -52,7 +52,10 @@ export_handler: ExportHandler | None = None
 async def lifespan(app: FastAPI):
     global claude_handler, kicad_client, datasheet_parser, export_handler
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if api_key:
+        logger.info("ANTHROPIC_API_KEY loaded: %s...%s (%d chars)",
+                    api_key[:12], api_key[-4:], len(api_key))
     claude_handler = ClaudeHandler(api_key=api_key)
     kicad_client = KiCadMCPClient()
     datasheet_parser = DatasheetParser(anthropic_client=claude_handler._client)
