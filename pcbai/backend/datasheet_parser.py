@@ -21,6 +21,7 @@ The resulting DatasheetConstraints object feeds into:
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import logging
@@ -324,6 +325,8 @@ async def _parse_with_claude(text: str, tables: list[dict], client: Any) -> Data
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
+        if not response.content:
+            raise ValueError("Claude returned empty content")
         raw = response.content[0].text.strip()
 
         # Strip markdown code block if present
@@ -517,7 +520,7 @@ class DatasheetParser:
         if not content:
             return {"parsed": False, "error": "Empty file", "filename": filename}
 
-        cache_key = str(len(content)) + filename
+        cache_key = hashlib.sha256(content).hexdigest()
         if cache_key in self._cache:
             cached = self._cache[cache_key]
             logger.info("Datasheet cache hit: %s", filename)

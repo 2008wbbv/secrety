@@ -15,6 +15,7 @@ Supported circuit types:
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime
 
 logger = logging.getLogger("pcbai.simulation.spice_generator")
@@ -296,7 +297,7 @@ class SPICEGenerator:
 
         r_ohm = _parse_value((r_comp or {}).get("value") or "1k", 1e3)
         c_f = _parse_value((c_comp or {}).get("value") or "100n", 100e-9)
-        fc_hz = 1 / (2 * 3.14159 * r_ohm * c_f)
+        fc_hz = 1 / (2 * math.pi * r_ohm * c_f)
         sim_freq = max(fc_hz * 100, 1e6)  # AC sweep to 100× fc
 
         lines = [
@@ -333,7 +334,7 @@ class SPICEGenerator:
         c_f = _parse_value((c_comp or {}).get("value") or "10u", 10e-6)
         rload_ohm = _parse_value((load or {}).get("value") or "10", 10.0)
         rl_ohm = 0.05  # inductor DCR
-        fc_hz = 1 / (2 * 3.14159 * (l_h * c_f) ** 0.5)
+        fc_hz = 1 / (2 * math.pi * (l_h * c_f) ** 0.5)
         sim_freq = max(fc_hz * 200, 1e6)
 
         lines = [

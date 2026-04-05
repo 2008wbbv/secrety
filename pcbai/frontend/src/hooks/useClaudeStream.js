@@ -71,7 +71,8 @@ export function useClaudeStream() {
           let event;
           try {
             event = JSON.parse(line.slice(6));
-          } catch {
+          } catch (e) {
+            console.warn('[useClaudeStream] Failed to parse SSE line:', line, e);
             continue;
           }
 

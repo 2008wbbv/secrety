@@ -109,10 +109,18 @@ function createWindow() {
 ipcMain.handle('backend:fetch', async (_event, urlPath, options = {}) => {
   // Only allow fetching from the local backend
   const url = `http://localhost:${BACKEND_PORT}${urlPath}`;
-  const { default: fetch } = await import('node-fetch').catch(() => ({
-    default: globalThis.fetch,
-  }));
-  const response = await fetch(url, options);
+  let fetchFn;
+  try {
+    const mod = await import('node-fetch');
+    fetchFn = mod.default;
+  } catch {
+    if (typeof globalThis.fetch === 'function') {
+      fetchFn = globalThis.fetch;
+    } else {
+      throw new Error('No fetch implementation available (node-fetch not installed and globalThis.fetch absent)');
+    }
+  }
+  const response = await fetchFn(url, options);
   const data = await response.json();
   return { status: response.status, data };
 });

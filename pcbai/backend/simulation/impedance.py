@@ -81,7 +81,10 @@ class ImpedanceCalculator:
                 )
                 check_type = "microstrip"
 
-            error_pct = abs(calculated_ohms - target_ohms) / target_ohms * 100
+            error_pct = (
+                abs(calculated_ohms - target_ohms) / target_ohms * 100
+                if target_ohms > 0 else 0.0
+            )
             passed = error_pct <= tolerance_pct
 
             if not passed:

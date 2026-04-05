@@ -294,6 +294,10 @@ class ClaudeHandler:
             messages=messages,
         )
 
+        if not response.content:
+            logger.error("[%s] Claude returned empty content", session.session_id)
+            return {"content": "", "expertise_level": session.expertise_level,
+                    "stage": session.stage, "session_id": session.session_id, "decisions": []}
         full_text = response.content[0].text
         clean_text, meta = _extract_meta(full_text)
 

@@ -19,7 +19,7 @@ from kicad_mcp_client import KiCadMCPClient
 from datasheet_parser import DatasheetParser
 from export_handler import ExportHandler
 from expertise_detector import ExpertiseDetector
-from component_resolver import ComponentResolver, DesignContext
+from component_resolver import ComponentResolver, DesignContext, ResolvedComponent, ClarifyRequest
 from simulation import (
     PowerBudgetCalculator,
     TraceWidthCalculator,
@@ -238,7 +238,6 @@ async def resolve_components(request: ComponentResolveRequest):
 
     for desc in request.descriptions:
         result = resolver.resolve(desc, ctx, expertise_level)  # type: ignore[arg-type]
-        from component_resolver import ResolvedComponent, ClarifyRequest
         if isinstance(result, ResolvedComponent):
             resolved_list.append({
                 "description": result.description,

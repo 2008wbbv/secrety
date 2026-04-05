@@ -128,7 +128,7 @@ class MCPTransport:
             "params": {"name": tool_name, "arguments": arguments},
         }
 
-        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[msg_id] = fut
         await self._send(payload)
 
@@ -154,6 +154,8 @@ class MCPTransport:
         return self._msg_id
 
     async def _send(self, payload: dict):
+        if self._proc is None or self._proc.stdin is None:
+            raise RuntimeError("MCP server process is not running")
         line = json.dumps(payload) + "\n"
         self._proc.stdin.write(line.encode())
         await self._proc.stdin.drain()
@@ -161,7 +163,7 @@ class MCPTransport:
     async def _initialize(self):
         """Perform MCP initialize/initialized handshake."""
         msg_id = self._next_id()
-        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        fut: asyncio.Future = asyncio.get_running_loop().create_future()
         self._pending[msg_id] = fut
 
         await self._send({
@@ -235,7 +237,7 @@ class CommandQueueItem:
     def __init__(self, tool: str, args: dict):
         self.tool = tool
         self.args = args
-        self.future: asyncio.Future = asyncio.get_event_loop().create_future()
+        self.future: asyncio.Future = asyncio.get_running_loop().create_future()
 
 
 # ── KiCadMCPClient ────────────────────────────────────────────────────────────
