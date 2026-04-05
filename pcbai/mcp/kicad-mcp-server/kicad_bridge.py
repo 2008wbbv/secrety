@@ -38,13 +38,26 @@ def _find_pcbnew() -> bool:
     except ImportError:
         pass
 
-    # KiCad on Linux: scripting path is usually under the KiCad application dir
     search_paths = [
+        # Linux
         "/usr/lib/kicad/lib/python3/dist-packages",
         "/usr/share/kicad/scripting",
+        # macOS
         "/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/lib/python3.11/site-packages",
         os.path.expanduser("~/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/lib/python3.11/site-packages"),
+        # Windows — KiCad 7, 8, 9 default install locations
+        r"C:\Program Files\KiCad\9.0\lib\python3\dist-packages",
+        r"C:\Program Files\KiCad\8.0\lib\python3\dist-packages",
+        r"C:\Program Files\KiCad\7.0\lib\python3\dist-packages",
+        r"C:\Program Files\KiCad\9.0\bin",
+        r"C:\Program Files\KiCad\8.0\bin",
+        r"C:\Program Files\KiCad\7.0\bin",
     ]
+
+    # Override/prepend with KICAD_SCRIPTING_DIR env var for non-default installs
+    env_path = os.environ.get("KICAD_SCRIPTING_DIR")
+    if env_path:
+        search_paths.insert(0, env_path)
 
     for p in search_paths:
         if Path(p).exists() and p not in sys.path:

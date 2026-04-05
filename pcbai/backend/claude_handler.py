@@ -15,8 +15,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import uuid
+from pathlib import Path
 from typing import AsyncIterator
 
 from system_prompt import (
@@ -30,6 +32,51 @@ logger = logging.getLogger("pcbai.claude_handler")
 
 MODEL = "claude-sonnet-4-20250514"
 MAX_TOKENS = 4096
+
+# ── Persistent session store ──────────────────────────────────────────────────
+
+# Sessions are saved to ~/.pcbai/sessions/<session_id>.json so that
+# conversation history survives backend restarts.
+_SESSIONS_DIR = Path(os.path.expanduser("~/.pcbai/sessions"))
+_SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _session_path(session_id: str) -> Path:
+    return _SESSIONS_DIR / f"{session_id}.json"
+
+
+def _save_session(session: "Session") -> None:
+    try:
+        data = {
+            "session_id": session.session_id,
+            "expertise_level": session.expertise_level,
+            "stage": session.stage,
+            "decisions": session.decisions,
+            "history": session.history,
+        }
+        _session_path(session.session_id).write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception as exc:
+        logger.warning("Failed to persist session %s: %s", session.session_id, exc)
+
+
+def _load_session(session_id: str) -> "Session | None":
+    path = _session_path(session_id)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        s = Session(session_id)
+        s.expertise_level = data.get("expertise_level", "unknown")
+        s.stage = data.get("stage", "intent_capture")
+        s.decisions = data.get("decisions", [])
+        s.history = data.get("history", [])
+        logger.info("Session loaded from disk: %s (%d messages)", session_id, len(s.history))
+        return s
+    except Exception as exc:
+        logger.warning("Failed to load session %s from disk: %s", session_id, exc)
+        return None
 
 # ── Meta block parser ─────────────────────────────────────────────────────────
 
@@ -87,9 +134,11 @@ class Session:
             self.expertise_level = detector_level
 
         self.history.append({"role": "user", "content": content})
+        _save_session(self)
 
     def add_assistant_message(self, content: str):
         self.history.append({"role": "assistant", "content": content})
+        _save_session(self)
 
     def update_from_meta(self, meta: dict):
         if "expertise_level" in meta:
@@ -149,13 +198,22 @@ class ClaudeHandler:
         if session_id is None:
             session_id = str(uuid.uuid4())
         if session_id not in self._sessions:
-            self._sessions[session_id] = Session(session_id)
-            logger.info("New session created: %s", session_id)
+            # Try to restore from disk first
+            restored = _load_session(session_id)
+            if restored:
+                self._sessions[session_id] = restored
+            else:
+                self._sessions[session_id] = Session(session_id)
+                logger.info("New session created: %s", session_id)
         return self._sessions[session_id]
 
     def reset_session(self, session_id: str) -> dict:
         if session_id in self._sessions:
             del self._sessions[session_id]
+        # Delete from disk too
+        path = _session_path(session_id)
+        if path.exists():
+            path.unlink(missing_ok=True)
         new_session = self.get_or_create_session(session_id)
         return new_session.to_dict()
 

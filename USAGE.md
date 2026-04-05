@@ -353,18 +353,57 @@ Without `ANTHROPIC_API_KEY`, the app still runs — the chat endpoint returns a 
 
 ---
 
+## KiCad Setup
+
+The app controls KiCad via its Python scripting API (`pcbnew`). KiCad does **not** need to be open — the app drives it headlessly in the background.
+
+### Windows
+
+1. Install KiCad from [kicad.org](https://www.kicad.org/download/) (version 7, 8, or 9)
+2. The app auto-detects KiCad under `C:\Program Files\KiCad\`. If your install is elsewhere, set:
+   ```powershell
+   # In your .env file:
+   KICAD_SCRIPTING_DIR=C:\path\to\kicad\bin
+   ```
+3. Verify detection worked — when the app starts you should see in the `[BACKEND]` log:
+   ```
+   INFO pcbai.kicad_mcp_client: MCP server subprocess started
+   ```
+   If you see `pcbnew not found`, check the path above.
+
+4. To verify manually:
+   ```powershell
+   & "C:\Program Files\KiCad\8.0\bin\python.exe" -c "import pcbnew; print(pcbnew.Version())"
+   ```
+
+### macOS
+```bash
+export PYTHONPATH="/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/lib/python3.11/site-packages"
+```
+
+### Linux
+```bash
+python3 -c "import pcbnew; print(pcbnew.Version())"
+# If this fails:
+sudo apt install kicad  # or your distro equivalent
+```
+
+### Starting a board in the app
+
+Just tell the AI what you want to build. When it reaches the layout stage it will automatically create a new `.kicad_pcb` file in your home directory (`~/pcbai_boards/`) and start placing components. You can also explicitly say:
+
+> "Create a new 80×60mm board at ~/myproject/board.kicad_pcb"
+
+or open an existing board:
+
+> "Open ~/myproject/existing.kicad_pcb"
+
+---
+
 ## Troubleshooting
 
 **"Failed to start KiCad MCP server"**
-KiCad must be installed and `pcbnew` must be importable from Python. Check with:
-```bash
-python3 -c "import pcbnew; print(pcbnew.Version())"
-```
-If this fails, add KiCad's Python path to your environment:
-```bash
-# macOS (KiCad 8)
-export PYTHONPATH="/Applications/KiCad/KiCad.app/Contents/Frameworks/Python.framework/Versions/Current/lib/python3.11/site-packages"
-```
+KiCad is not installed or `pcbnew` can't be found. See KiCad Setup above. On Windows, try setting `KICAD_SCRIPTING_DIR` in your `.env` file.
 
 **Electron window is blank**
 Vite dev server takes a few seconds to start. The Electron process waits via `wait-on`, but if it times out, run `npm run dev:vite` separately first, then `npm run dev:electron`.
