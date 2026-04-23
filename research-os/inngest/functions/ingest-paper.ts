@@ -8,54 +8,59 @@ import { SUMMARIZE_SYSTEM, buildSummarizePrompt } from '@/lib/llm/prompts/summar
 import type { IngestPayload } from '@/types'
 
 export const ingestPaper = inngest.createFunction(
-  { id: 'ingest-paper', retries: 2 },
-  { event: 'paper/ingest' },
-  async ({ event }) => {
+  { id: 'ingest-paper', retries: 2, triggers: { event: 'paper/ingest' } },
+  async ({ event, step }) => {
     const { paperId, userId } = event.data as IngestPayload
-    const supabase = createAdminClient()
 
-    const { data: paper, error: paperError } = await supabase
-      .from('papers')
-      .select('*')
-      .eq('id', paperId)
-      .single()
+    const paper = await step.run('fetch-paper', async () => {
+      const supabase = createAdminClient()
+      const { data, error } = await supabase
+        .from('papers')
+        .select('id, title, storage_path, source_url')
+        .eq('id', paperId)
+        .single()
+      if (error) throw new Error(`Paper ${paperId} not found: ${error.message}`)
+      return data as { id: string; title: string | null; storage_path: string | null; source_url: string | null }
+    })
 
-    if (paperError || !paper) {
-      throw new Error(`Paper ${paperId} not found`)
-    }
-
-    try {
-      let pdfBuffer: ArrayBuffer | null = null
-
-      if (paper['storage_path']) {
-        const { data: storageData } = await supabase.storage
-          .from('papers')
-          .download(paper['storage_path'] as string)
-        if (storageData) pdfBuffer = await storageData.arrayBuffer()
-      } else if (paper['source_url']) {
-        const res = await fetch(paper['source_url'] as string)
-        if (res.ok) pdfBuffer = await res.arrayBuffer()
+    const pdfBuffer = await step.run('download-pdf', async () => {
+      const supabase = createAdminClient()
+      if (paper.storage_path) {
+        const { data } = await supabase.storage.from('papers').download(paper.storage_path)
+        if (data) return Array.from(new Uint8Array(await data.arrayBuffer()))
       }
-
-      if (!pdfBuffer) {
-        await supabase.from('papers').update({ status: 'failed', error_message: 'No PDF available' }).eq('id', paperId)
-        return
+      if (paper.source_url) {
+        const res = await fetch(paper.source_url)
+        if (res.ok) return Array.from(new Uint8Array(await res.arrayBuffer()))
       }
+      throw new Error('No PDF source available')
+    })
 
-      const extracted = await extractPDFText(pdfBuffer)
-
-      if (!isTextSufficient(extracted.fullText)) {
-        await supabase.from('papers').update({ status: 'failed', error_message: 'PDF text extraction insufficient. Scanned PDF OCR not yet configured.' }).eq('id', paperId)
-        return
+    const extracted = await step.run('extract-text', async () => {
+      const buffer = new Uint8Array(pdfBuffer).buffer
+      const result = await extractPDFText(buffer)
+      if (!isTextSufficient(result.fullText)) {
+        throw new Error('Extracted text is too short. Scanned PDF OCR not yet supported.')
       }
+      return result
+    })
 
+    await step.run('update-page-count', async () => {
+      const supabase = createAdminClient()
       await supabase.from('papers').update({ page_count: extracted.totalPages }).eq('id', paperId)
+    })
 
-      const rawChunks = chunkPages(extracted.pages)
-      const texts = rawChunks.map((c) => c.content)
-      const embeddings = await embedBatch(texts)
+    const rawChunks = await step.run('chunk-text', async () => {
+      return chunkPages(extracted.pages)
+    })
 
-      const chunkRows = rawChunks.map((c, i) => ({
+    const embeddings = await step.run('embed-chunks', async () => {
+      return embedBatch(rawChunks.map((c) => c.content))
+    })
+
+    await step.run('save-chunks', async () => {
+      const supabase = createAdminClient()
+      const rows = rawChunks.map((c, i) => ({
         paper_id: paperId,
         user_id: userId,
         chunk_index: i,
@@ -66,30 +71,22 @@ export const ingestPaper = inngest.createFunction(
         token_count: c.token_count,
         embedding: embeddings[i],
       }))
-
       const BATCH = 50
-      for (let i = 0; i < chunkRows.length; i += BATCH) {
-        const batch = chunkRows.slice(i, i + BATCH)
-        const { error } = await supabase.from('chunks').insert(batch)
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const { error } = await supabase.from('chunks').insert(rows.slice(i, i + BATCH))
         if (error) throw new Error(`Chunk insert failed: ${error.message}`)
       }
+    })
 
-      const summary = await complete(
-        SUMMARIZE_SYSTEM,
-        buildSummarizePrompt(paper['title'] as string | null, extracted.fullText)
-      )
+    const summary = await step.run('summarize', async () => {
+      return complete(SUMMARIZE_SYSTEM, buildSummarizePrompt(paper.title, extracted.fullText))
+    })
 
-      await supabase
-        .from('papers')
-        .update({ status: 'ready', summary })
-        .eq('id', paperId)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      await supabase
-        .from('papers')
-        .update({ status: 'failed', error_message: message })
-        .eq('id', paperId)
-      throw err
-    }
+    await step.run('finalize', async () => {
+      const supabase = createAdminClient()
+      await supabase.from('papers').update({ status: 'ready', summary }).eq('id', paperId)
+    })
+
+    return { paperId, chunks: rawChunks.length, summary }
   }
 )

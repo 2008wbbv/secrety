@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { anthropic, CLAUDE_MODEL } from '@/lib/llm/claude'
+import { CLAUDE_MODEL, stubStream } from '@/lib/llm/claude'
 import { ASSISTANT_SYSTEM, buildAssistantContext } from '@/lib/llm/prompts/assistant'
+import { STUB_ASSISTANT_RESPONSE } from '@/lib/stubs'
 import { searchChunks } from '@/lib/rag/search'
 import type { Citation, ChunkWithPaper } from '@/types'
 
@@ -27,12 +28,13 @@ export async function POST(request: Request): Promise<Response> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized', code: 401 }, { status: 401 })
 
-  const body = await request.json() as { message?: string; threadId?: string | null; userId?: string }
+  const body = await request.json() as { message?: string; threadId?: string | null }
   const message = body.message?.trim()
   if (!message) return NextResponse.json({ error: 'message required', code: 400 }, { status: 400 })
 
   const admin = createAdminClient()
   const encoder = new TextEncoder()
+  const isStub = process.env.STUB_AI === 'true'
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -56,45 +58,55 @@ export async function POST(request: Request): Promise<Response> {
 
         if (threadId) {
           await admin.from('assistant_messages').insert({
-            thread_id: threadId,
-            role: 'user',
-            content: message,
-            citations: [],
+            thread_id: threadId, role: 'user', content: message, citations: [],
           })
         }
 
-        const context = chunks.length > 0 ? buildAssistantContext(chunks) : 'No relevant papers found in your library.'
+        const context = chunks.length > 0
+          ? buildAssistantContext(chunks)
+          : 'No relevant papers found in your library.'
         const systemWithContext = `${ASSISTANT_SYSTEM}\n\nContext from your library:\n\n${context}`
 
-        const { data: history } = threadId
-          ? await admin
-            .from('assistant_messages')
-            .select('role, content')
-            .eq('thread_id', threadId)
-            .order('created_at')
-            .limit(20)
-          : { data: [] }
-
-        const prevMessages = (history ?? [])
-          .filter((m: { role: string }) => m.role !== 'system')
-          .map((m: { role: string; content: string }) => ({
-            role: m.role as 'user' | 'assistant',
-            content: m.content,
-          }))
-
-        const claudeStream = await anthropic.messages.create({
-          model: CLAUDE_MODEL,
-          max_tokens: 4096,
-          system: systemWithContext,
-          messages: [...prevMessages, { role: 'user', content: message }],
-          stream: true,
-        })
-
         let fullText = ''
-        for await (const event of claudeStream) {
-          if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-            fullText += event.delta.text
-            send({ type: 'text', text: event.delta.text })
+
+        if (isStub) {
+          for await (const word of stubStream(STUB_ASSISTANT_RESPONSE)) {
+            fullText += word
+            send({ type: 'text', text: word })
+          }
+        } else {
+          const Anthropic = (await import('@anthropic-ai/sdk')).default
+          const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+          const { data: history } = threadId
+            ? await admin
+              .from('assistant_messages')
+              .select('role, content')
+              .eq('thread_id', threadId)
+              .order('created_at')
+              .limit(20)
+            : { data: [] }
+
+          const prevMessages = (history ?? [])
+            .filter((m: { role: string }) => m.role !== 'system')
+            .map((m: { role: string; content: string }) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            }))
+
+          const claudeStream = await anthropic.messages.create({
+            model: CLAUDE_MODEL,
+            max_tokens: 4096,
+            system: systemWithContext,
+            messages: [...prevMessages, { role: 'user', content: message }],
+            stream: true,
+          })
+
+          for await (const event of claudeStream) {
+            if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+              fullText += event.delta.text
+              send({ type: 'text', text: event.delta.text })
+            }
           }
         }
 
@@ -103,10 +115,7 @@ export async function POST(request: Request): Promise<Response> {
 
         if (threadId) {
           await admin.from('assistant_messages').insert({
-            thread_id: threadId,
-            role: 'assistant',
-            content: fullText,
-            citations,
+            thread_id: threadId, role: 'assistant', content: fullText, citations,
           })
           await admin.from('assistant_threads').update({ updated_at: new Date().toISOString() }).eq('id', threadId)
         }
